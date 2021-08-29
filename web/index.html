@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zoom Clone</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        .layer2 {
+            position: absolute;
+            top: 0;
+        }
+
+        .container_row {
+            height: 50px;
+            margin-top: 100px;
+            position: relative;
+        }
+    </style>
+</head>
+
+<body>
+
+    <button onclick="startCall()" class="start-call">
+        Start
+    </button>
+
+    <div class="container_row">
+        <video autoplay id="senderVideo" width="500" height="500" controls="false" muted></video>
+        <div class="layer2">
+            <video autoplay id="receiverVideo" width="160" height="120" controls="false" muted></video>
+        </div>
+    </div>
+
+    <script>
+        // use http://localhost:8080/?meetingId=07927fc8-af0a-11ea-b338-064f26a5f90a&userId=rafael&peerId=john
+        // and http://localhost:8080/?meetingId=07927fc8-af0a-11ea-b338-064f26a5f90a&userId=john&peerId=rafeal
+        // start the call
+        const urlParams = new URLSearchParams(window.location.search);
+
+        const meetingId = urlParams.get('meetingId')
+        const peerId = urlParams.get('peerId')
+        const userId = urlParams.get('userId')
+
+        const pcSender = new RTCPeerConnection({
+            iceServers: [{
+                urls: 'stun:stun.l.google.com:19302'
+            }]
+        })
+
+        const pcReciever = new RTCPeerConnection({
+            iceServers: [{
+                urls: 'stun:stun.l.google.com:19302'
+            }]
+        })
+
+        pcSender.onicecandidate = event => {
+            if (event.candidate === null) {
+                let payload = {
+                    "SDP": btoa(JSON.stringify(pcSender.localDescription))
+                }
+                axios.post(`/webrtc/sdp/m/${meetingId}/c/${userId}/p/${peerId}/s/true`, payload).then(({
+                    data
+                }) => {
+                    pcSender.setRemoteDescription(new RTCSessionDescription(JSON.parse(atob(data.SDP))))
+                });
+            }
+        }
+
+        pcReciever.onicecandidate = event => {
+            if (event.candidate === null) { 
+                let payload = {
+                    "SDP": btoa(JSON.stringify(pcReciever.localDescription))
+                }
+                axios.post(`/webrtc/sdp/m/${meetingId}/c/${userId}/p/${peerId}/s/false`, payload).then(({
+                    data
+                }) => {
+                    pcReciever.setRemoteDescription(new RTCSessionDescription(JSON.parse(atob(data.SDP))))
+                })
+            }
+        }
+
+        function startCall() {
+            // sender part of the call
+            navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true
+            }).then((stream) => {
+                var senderVideo = document.getElementById('senderVideo');
+                senderVideo.srcObject = stream;
+                var tracks = stream.getTracks();
+                for (var i = 0; i < tracks.length; i++) {
+                    pcSender.addTrack(stream.getTracks()[i]);
+                }
+                pcSender.createOffer().then(d => pcSender.setLocalDescription(d))
+            })
+            // you can use event listner so that you inform he is connected!
+            pcSender.addEventListener('connectionstatechange', event => {
+                if (pcSender.connectionState === 'connected') {
+                    console.log("horray!")
+                }
+                console.log(event)
+            });
+
+            // receiver part of the call
+            pcReciever.addTransceiver('video', {
+                'direction': 'recvonly'
+            })
+
+            pcReciever.createOffer()
+                .then(d => pcReciever.setLocalDescription(d))
+
+            pcReciever.ontrack = function (event) {
+                var receiverVideo = document.getElementById('receiverVideo')
+                receiverVideo.srcObject = event.streams[0]
+                receiverVideo.autoplay = true
+                receiverVideo.controls = false
+            }
+
+        }
+    </script>
+</body>
+
+</html>
